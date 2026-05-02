@@ -1,0 +1,20 @@
+# Secrets — never commit
+.env
+
+# Python virtual environment — hundreds of MB, regeneratable
+.venv/
+
+# Python build artifacts
+__pycache__/
+*.pyc
+*.pyo
+
+# Local SQLite cache we'll create in Phase 2
+treasury.db
+treasury.db-journal
+
+# Editor noise
+.vscode/
+.idea/
+*.swp
+.DS_Store
