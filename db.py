@@ -61,10 +61,10 @@ CREATE INDEX IF NOT EXISTS idx_bank_direction ON bank_events(direction);
 CREATE TABLE IF NOT EXISTS parameter_history (
     block_number  INTEGER NOT NULL,
     block_time    INTEGER NOT NULL,
-    source        TEXT NOT NULL,                 -- 'deposit' | 'redemption'
-    divisor       INTEGER NOT NULL,
-    dust_sats     INTEGER,
-    tx_max_fee    INTEGER,
+    source        TEXT NOT NULL,
+    divisor       TEXT NOT NULL,           -- stored as decimal string (uint64 can exceed int64)
+    dust_sats     TEXT,
+    tx_max_fee    TEXT,
     tx_hash       TEXT NOT NULL,
     PRIMARY KEY (block_number, source, tx_hash)
 );
