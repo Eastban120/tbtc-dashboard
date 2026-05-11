@@ -19,3 +19,6 @@ treasury.db-journal
 .idea/
 *.swp
 .DS_Store
+
+# Throwaway diagnostic scripts
+_*.py

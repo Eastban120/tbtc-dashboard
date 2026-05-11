@@ -44,26 +44,13 @@ bank: Contract = w3.eth.contract(
     abi=_load_abi("bank.json"),
 )
 
-""" if __name__ == "__main__":
-    # Self-test: prove the ABI loaded and the address matches what's on-chain.
-    # `bridge.functions.treasury().call()` invokes the Bridge's `treasury()`
-    # view function via eth_call. View functions are free — no transaction,
-    # no gas, just a read.
-    on_chain_treasury = bridge.functions.treasury().call()
+# Build the tBTC ERC-20 token contract object.
+# Used in Phase 2D to track mints and burns for supply reconciliation.
+tbtc_token: Contract = w3.eth.contract(
+    address=config.TBTC_TOKEN_ADDRESS,
+    abi=_load_abi("tbtc_token.json"),
+)
 
-    print(f"Bridge address       : {bridge.address}")
-    print(f"Bank address         : {bank.address}")
-    print(f"On-chain treasury    : {on_chain_treasury}")
-    print(f"Configured treasury  : {config.TREASURY_ADDRESS}")
-    match = on_chain_treasury.lower() == config.TREASURY_ADDRESS.lower()
-    print(f"Match                : {match}")
-
-    # List the event names we have available — useful sanity check.
-    event_names = [e.event_name for e in bridge.events]
-    interesting = [n for n in event_names if "Deposit" in n or "Redemption" in n]
-    print(f"Bridge events ({len(event_names)} total):")
-    for n in sorted(interesting):
-        print(f"  - {n}") """
 
 if __name__ == "__main__":
     # Bridge sanity
@@ -85,3 +72,8 @@ if __name__ == "__main__":
     print(f"Bank's bridge ref    : {bank_bridge}")
     bank_bridge_match = bank_bridge.lower() == config.BRIDGE_ADDRESS.lower()
     print(f"Bank↔Bridge link OK  : {bank_bridge_match}")
+
+    # tBTC token sanity — confirm we can call totalSupply() and the address matches
+    total_supply = tbtc_token.functions.totalSupply().call()
+    print(f"\ntBTC token address   : {tbtc_token.address}")
+    print(f"Live totalSupply     : {total_supply / 1e18:,.4f} tBTC")

@@ -55,6 +55,27 @@ CREATE TABLE IF NOT EXISTS bank_events (
 CREATE INDEX IF NOT EXISTS idx_bank_block_time ON bank_events(block_time);
 CREATE INDEX IF NOT EXISTS idx_bank_direction ON bank_events(direction);
 
+-- ─── tBTC token transfers (mints and burns only) ──────────────────
+-- Mints: Transfer(from=0x0, to=anyone)
+-- Burns: Transfer(from=anyone, to=0x0)
+-- Used to compute total minted, total redeemed, and circulating supply.
+-- amount_wei is uint256 denominated in 1e18 — TEXT because it overflows
+-- SQLite's signed int64 (e.g. 100k tBTC = 1e23, well above 2^63).
+CREATE TABLE IF NOT EXISTS token_transfers (
+    tx_hash       TEXT NOT NULL,
+    log_index     INTEGER NOT NULL,
+    block_number  INTEGER NOT NULL,
+    block_time    INTEGER NOT NULL,
+    direction     TEXT NOT NULL,                 -- 'mint' | 'burn'
+    counterparty  TEXT NOT NULL,                 -- the non-zero address
+    amount_wei    TEXT NOT NULL,                 -- decimal string, 18 decimals
+    PRIMARY KEY (tx_hash, log_index)
+);
+
+CREATE INDEX IF NOT EXISTS idx_tt_block_time ON token_transfers(block_time);
+CREATE INDEX IF NOT EXISTS idx_tt_direction  ON token_transfers(direction);
+
+
 -- ─── Parameter history ────────────────────────────────────────────
 -- Every time governance updated deposit or redemption fee parameters.
 -- Used to compute "what was the divisor at block X" for historical fee math.
@@ -147,6 +168,6 @@ if __name__ == "__main__":
         ).fetchall()
         print(f"Tables created: {[r['name'] for r in tables]}")
 
-        for table in ('bridge_events', 'bank_events', 'parameter_history', 'sync_state'):
+        for table in ('bridge_events', 'bank_events', 'parameter_history', 'token_transfers', 'sync_state'):
             count = conn.execute(f"SELECT COUNT(*) AS n FROM {table}").fetchone()
             print(f"  {table:<20}: {count['n']} rows")

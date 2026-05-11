@@ -43,6 +43,7 @@ RPC_URL: str = _required("RPC_URL")
 BRIDGE_ADDRESS: str = _checksum(_required("BRIDGE_ADDRESS"))
 BANK_ADDRESS: str = _checksum(_required("BANK_ADDRESS"))
 TREASURY_ADDRESS: str = _checksum(_required("TREASURY_ADDRESS"))
+TBTC_TOKEN_ADDRESS: str = _checksum(_required("TBTC_TOKEN_ADDRESS"))
 
 # --- Optional, with sensible defaults ---
 LOG_CHUNK_SIZE: int = int(os.getenv("LOG_CHUNK_SIZE", "10000"))
@@ -60,5 +61,6 @@ if __name__ == "__main__":
     print(f"  BRIDGE_ADDRESS   : {BRIDGE_ADDRESS}")
     print(f"  BANK_ADDRESS     : {BANK_ADDRESS}")
     print(f"  TREASURY_ADDRESS : {TREASURY_ADDRESS}")
+    print(f"  TBTC_TOKEN_ADDRESS: {TBTC_TOKEN_ADDRESS}")
     print(f"  LOG_CHUNK_SIZE   : {LOG_CHUNK_SIZE}")
     print(f"  DB_PATH          : {DB_PATH}")
