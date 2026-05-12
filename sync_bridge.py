@@ -34,6 +34,17 @@ def fetch_bridge_events(from_block: int, to_block: int):
     swept = bridge.events.DepositsSwept.get_logs(
         from_block=from_block, to_block=to_block,
     )
+
+    # Sanity check: bridge activity is near-continuous since ~16.2M. A large
+    # window with zero of all three event types past that point is suspicious.
+    window = to_block - from_block + 1
+    if (window >= 1000 and from_block >= 16_200_000
+            and len(revealed) == 0 and len(requested) == 0 and len(swept) == 0):
+        raise RuntimeError(
+            f"Suspicious: 0 bridge events in {from_block:,}–{to_block:,} "
+            f"({window} blocks). Likely a silent RPC empty-response; raising to retry."
+        )
+
     return revealed, requested, swept
 
 

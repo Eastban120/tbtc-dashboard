@@ -25,6 +25,35 @@ TOKEN_GENESIS_BLOCK = 16_000_000
 PROGRESS_EVERY = 50
 
 ZERO_ADDRESS = "0x0000000000000000000000000000000000000000"
+from contracts import tbtc_token
+from db import connect, get_sync_state, init_db, set_sync_state
+
+
+# Same genesis as the rest of the project. The first tBTC transfer is
+# a few hundred thousand blocks later, but those scans are essentially free
+# (zero matching events) and not worth a separate constant.
+TOKEN_GENESIS_BLOCK = 16_000_000
+PROGRESS_EVERY = 50
+
+ZERO_ADDRESS = "0x0000000000000000000000000000000000000000"
+
+# Tolerance for considering supply "reconciled": 0.001 tBTC.
+# Anything below this is rounding noise; anything above warrants investigation.
+RECONCILE_TOLERANCE_WEI = 10**15
+
+# tBTC v2 token has supply that predates our Bridge genesis (from the
+# VendingMachine v1→v2 migration in 2021). We compute this lazily on first
+# use rather than hardcoding it — auto-corrects if TOKEN_GENESIS_BLOCK changes.
+_pre_genesis_baseline_wei: int | None = None
+
+def pre_genesis_baseline_wei() -> int:
+    """totalSupply() at TOKEN_GENESIS_BLOCK — supply we don't see in our event sync."""
+    global _pre_genesis_baseline_wei
+    if _pre_genesis_baseline_wei is None:
+        _pre_genesis_baseline_wei = tbtc_token.functions.totalSupply().call(
+            block_identifier=TOKEN_GENESIS_BLOCK
+        )
+    return _pre_genesis_baseline_wei
 
 
 def fetch_token_events(from_block: int, to_block: int):
@@ -37,6 +66,18 @@ def fetch_token_events(from_block: int, to_block: int):
         from_block=from_block, to_block=to_block,
         argument_filters={"to": ZERO_ADDRESS},
     )
+
+    # Sanity check: mint activity on tBTC is near-continuous since late 2022.
+    # A 10k-block window (~33 hours) with zero mints AND zero burns is
+    # essentially impossible during active periods and likely indicates a
+    # silent RPC empty-response. Raise so the retry-with-smaller-chunk kicks in.
+    window = to_block - from_block + 1
+    if window >= 5000 and len(mints) == 0 and len(burns) == 0 and from_block >= 16_200_000:
+        raise RuntimeError(
+            f"Suspicious: 0 mints AND 0 burns in {from_block:,}–{to_block:,} "
+            f"({window} blocks). Likely a silent RPC empty-response; raising to retry."
+        )
+    
     return mints, burns
 
 
@@ -126,6 +167,33 @@ def sync_token() -> None:
         time.sleep(0.1)
 
     print(f"\nDone. {counts}")
+    # Post-sync reconciliation: catch silent misses immediately.
+    try:
+        live_supply = tbtc_token.functions.totalSupply().call(block_identifier=head)
+        mint_rows = []
+        burn_rows = []
+        with connect() as conn:
+            mint_rows = conn.execute(
+                "SELECT amount_wei FROM token_transfers "
+                "WHERE direction='mint' AND block_number <= ?",
+                (head,)
+            ).fetchall()
+            burn_rows = conn.execute(
+                "SELECT amount_wei FROM token_transfers "
+                "WHERE direction='burn' AND block_number <= ?",
+                (head,)
+            ).fetchall()
+        event_supply = sum(int(r['amount_wei']) for r in mint_rows) \
+                     - sum(int(r['amount_wei']) for r in burn_rows)
+        drift = (live_supply - event_supply) - pre_genesis_baseline_wei()
+        if abs(drift) < RECONCILE_TOLERANCE_WEI:
+            print(f"✓ Supply reconciled at block {head:,} "
+                  f"(drift {drift/1e18:+.6f} tBTC)")
+        else:
+            print(f"⚠ Drift {drift/1e18:+.4f} tBTC at block {head:,} — "
+                  f"run `python reconcile_token.py` to bisect and backfill")
+    except Exception as e:
+        print(f"(post-sync verification skipped: {e!s:.60})")
 
 
 def report() -> None:
@@ -162,24 +230,18 @@ def report() -> None:
         print(f"  Total burned    : {total_burned_wei / 1e18:>14,.4f} tBTC")
         print(f"  Circulating     : {circulating_wei  / 1e18:>14,.4f} tBTC")
 
-        # Cross-check against live totalSupply. If the gap is meaningful,
-        # we're missing events somewhere — investigate before trusting the data.
+        # Cross-check against live totalSupply at chain head.
         try:
             live_supply_wei = tbtc_token.functions.totalSupply().call()
             gap_wei = live_supply_wei - circulating_wei
             print(f"  Live totalSupply: {live_supply_wei / 1e18:>14,.4f} tBTC")
             print(f"  Gap             : {gap_wei         / 1e18:>14,.6f} tBTC")
-            # Pre-genesis baseline: the tBTC v2 token contract was active
-            # since ~2021 via the VendingMachine v1→v2 migration. Our sync
-            # starts at block 16,000,000 (Bridge launch). Net pre-genesis
-            # activity nets to ~63 tBTC of supply we don't see in events.
-            # This is expected and unrelated to Bridge/treasury operations.
-            PRE_GENESIS_BASELINE_WEI = int(63.5363 * 10**18)
-            adjusted_gap = gap_wei - PRE_GENESIS_BASELINE_WEI
-            if abs(adjusted_gap) < 10**18:  # under 1 tBTC of unexplained drift
-                print(f"  ✓ Reconciliation OK (gap = pre-genesis baseline ± {adjusted_gap/1e18:+.4f} tBTC)")
+            adjusted_gap = gap_wei - pre_genesis_baseline_wei()
+            if abs(adjusted_gap) < RECONCILE_TOLERANCE_WEI:
+                print(f"  ✓ Reconciled (drift {adjusted_gap/1e18:+.6f} tBTC within tolerance)")
             else:
                 print(f"  ⚠ Unexplained drift: {adjusted_gap/1e18:+.4f} tBTC beyond baseline")
+                print(f"    → run `python reconcile_token.py` to bisect and backfill")
         except Exception as e:
             print(f"  (skipping live totalSupply check: {e!s:.60})")
 
